@@ -1,0 +1,25 @@
+# Build products and caches
+/.build/
+/dist/
+*.app/
+*.dSYM/
+*.zip
+
+# Local diagnostics and credentials
+*.log
+*.ndjson
+*.logarchive/
+.env
+.env.*
+*.p12
+*.p8
+*.key
+
+# macOS and editors
+.DS_Store
+._*
+.idea/
+.vscode/
+*.swp
+*~
+xcuserdata/

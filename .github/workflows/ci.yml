@@ -1,0 +1,58 @@
+name: macOS build and tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcrun swiftc --version
+      - name: Check scripts
+        run: |
+          for script in build.sh test.sh package.sh; do
+            bash -n "$script"
+          done
+      - name: Test playback evidence and switching policy
+        run: bash test.sh
+      - name: Build and package
+        run: bash package.sh --arch "${{ matrix.arch }}"
+      - name: Verify bundle and CLI without accessing audio hardware
+        run: |
+          codesign --verify --deep --strict dist/AudioRateMatch.app
+          plutil -lint dist/AudioRateMatch.app/Contents/Info.plist
+          test "$(lipo -archs dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch)" = "${{ matrix.arch }}"
+          test "$(dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch --version)" = "AudioRateMatch $(cat VERSION)"
+          dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch --help
+          cd dist
+          shasum -a 256 -c *.sha256
+      - name: Save app archive and checksum
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: AudioRateMatch-macOS-${{ matrix.arch }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
