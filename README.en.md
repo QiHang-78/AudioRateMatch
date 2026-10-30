@@ -1,6 +1,10 @@
+<img src="Resources/AppIcon.png" alt="AudioRateMatch app icon" width="128" height="128">
+
 # AudioRateMatch
 
 **Match a macOS output device's sample rate to a verified playback stream.**
+
+Current version: **1.0**.
 
 [Download](https://github.com/QiHang-78/AudioRateMatch/releases/latest) · [简体中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Publishing guide](docs/RELEASING.md)
 
@@ -95,6 +99,8 @@ Preferences use the `local.audioratematch` UserDefaults domain. Logs are written
 ## Development
 
 `Sources/` contains the app; `Tests/` contains synthetic playback-policy checks; `Resources/Info.plist` is the app metadata template. `VERSION` supplies the bundle version during builds. The test suite exercises process identity, queue transitions, routing, app selection, ambiguity and switching limits without touching audio hardware.
+
+The original icon combines a navy tile, synchronization arrows and an audio waveform. Its editable AppKit drawing code is in `Artwork/GenerateIcon.swift`. Run `bash scripts/generate-icons.sh` to regenerate the 16–1024 pixel macOS icon set and PNG preview. Normal builds use the committed resources. Artwork is included under the same MIT license as the code.
 
 The GitHub Actions configuration runs tests and native builds on both Apple Silicon and Intel macOS runners. Hosted CI does not verify real DAC behavior. See [contribution guidelines](CONTRIBUTING.md), [validation](docs/VALIDATION.md) and [publishing](docs/RELEASING.md) for details; supporting documents are currently in Chinese.
 

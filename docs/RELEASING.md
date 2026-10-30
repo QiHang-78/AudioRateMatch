@@ -13,7 +13,7 @@ git init -b main
 git add .
 git diff --cached --check
 git status --short
-git commit -m "Initial open-source release of AudioRateMatch 2.0.0"
+git commit -m "Initial open-source release of AudioRateMatch 1.0"
 git remote add origin YOUR_REPOSITORY_URL
 git push -u origin main
 ```
@@ -39,16 +39,16 @@ bash package.sh --arch universal
 
 ```text
 dist/AudioRateMatch.app
-dist/AudioRateMatch-2.0.0-macOS-universal.zip
-dist/AudioRateMatch-2.0.0-macOS-universal.zip.sha256
+dist/AudioRateMatch-1.0-macOS-universal.zip
+dist/AudioRateMatch-1.0-macOS-universal.zip.sha256
 ```
 
-构建脚本从 `VERSION` 读取版本并写入应用 Bundle 的两个版本字段。`Resources/Info.plist` 中的 `0.0.0` 是模板占位值。所有路径相对项目本身解析，可以从其他工作目录调用脚本。
+构建脚本从 `VERSION` 读取版本并写入应用 Bundle 的两个版本字段，支持 `1.0` 或 `1.0.1` 这样的格式。`Resources/Info.plist` 中的 `0.0` 是模板占位值。所有路径相对项目本身解析，可以从其他工作目录调用脚本。
 
 ZIP 使用系统 `ditto` 保存应用结构和执行权限。可以在 `dist/` 中执行以下命令验证下载文件：
 
 ```sh
-shasum -a 256 -c AudioRateMatch-2.0.0-macOS-universal.zip.sha256
+shasum -a 256 -c AudioRateMatch-1.0-macOS-universal.zip.sha256
 ```
 
 ## GitHub Actions
@@ -61,11 +61,11 @@ shasum -a 256 -c AudioRateMatch-2.0.0-macOS-universal.zip.sha256
 
 ## 创建 Release
 
-更新 `VERSION`、`CHANGELOG.md` 和实际验证记录，通过测试及构建后提交更改。再创建对应标签，例如：
+更新 `VERSION`、README、`CHANGELOG.md` 和实际验证记录，通过测试及构建后提交更改。修改图标绘制代码后先运行 `bash scripts/generate-icons.sh`，并提交 `Resources/AppIcon.icns` 和 `Resources/AppIcon.png`。再创建对应标签，例如：
 
 ```sh
-git tag v2.0.0
-git push origin v2.0.0
+git tag v1.0
+git push origin v1.0
 ```
 
 在平台发布页选择该标签，附上应用 ZIP 和对应 `.sha256` 文件，并说明 macOS 要求、构建架构、签名 / 公证状态和格式识别限制。二进制作为 Release 附件，源码由 Git 保存。

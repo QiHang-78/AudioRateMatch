@@ -1,6 +1,10 @@
+<img src="Resources/AppIcon.png" alt="AudioRateMatch 应用图标" width="128" height="128">
+
 # AudioRateMatch
 
 **根据可确认的播放流格式，自动调整 macOS 输出设备的采样率。**
+
+当前版本：**1.0**。
 
 [下载应用](https://github.com/QiHang-78/AudioRateMatch/releases/latest) · [English](README.en.md) · [兼容范围与原理](docs/ARCHITECTURE.md) · [验证记录](docs/VALIDATION.md) · [发布指南](docs/RELEASING.md)
 
@@ -114,6 +118,9 @@ dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch \
 Sources/              应用、音频硬件访问、日志监听与匹配策略
 Tests/                使用合成事件的解析和策略测试
 Resources/Info.plist   应用信息模板
+Resources/AppIcon.*    macOS 应用图标及 PNG 预览
+Artwork/              原创图标的可编辑绘制代码
+scripts/              图标生成脚本
 VERSION               发布版本号
 build.sh              构建并签名应用
 test.sh               运行不访问音频硬件的测试
@@ -123,6 +130,8 @@ docs/                 原理、验证记录、发布指南
 ```
 
 测试涵盖进程隔离、PID 重用、预加载、播放交叠、设备路由、应用选择和切换节流。GitHub Actions 配置会在 Apple Silicon 和 Intel macOS runner 上执行测试及原生构建；CI 不连接真实 DAC，不验证实际播放兼容性。
+
+图标由项目中的 AppKit 绘制代码生成，使用深蓝底、同步环与音频波形。修改 `Artwork/GenerateIcon.swift` 后运行 `bash scripts/generate-icons.sh`，即可重新生成 16–1024 像素的 macOS 图标和 PNG 预览；普通构建直接使用已提交的图标资源。图标与代码一同采用 MIT 许可证。
 
 欢迎提交兼容性报告与改进，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

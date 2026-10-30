@@ -31,7 +31,7 @@ jobs:
           xcrun swiftc --version
       - name: Check scripts
         run: |
-          for script in build.sh test.sh package.sh; do
+          for script in build.sh test.sh package.sh scripts/generate-icons.sh; do
             bash -n "$script"
           done
       - name: Test playback evidence and switching policy
@@ -42,6 +42,8 @@ jobs:
         run: |
           codesign --verify --deep --strict dist/AudioRateMatch.app
           plutil -lint dist/AudioRateMatch.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' dist/AudioRateMatch.app/Contents/Info.plist)" = "AppIcon.icns"
+          cmp Resources/AppIcon.icns dist/AudioRateMatch.app/Contents/Resources/AppIcon.icns
           test "$(lipo -archs dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch)" = "${{ matrix.arch }}"
           test "$(dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch --version)" = "AudioRateMatch $(cat VERSION)"
           dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch --help

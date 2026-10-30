@@ -38,8 +38,8 @@ BUILD_DIR="$PROJECT_DIR/.build"
 OUTPUT_DIR="$PROJECT_DIR/dist"
 APP_DIR="$OUTPUT_DIR/AudioRateMatch.app"
 VERSION="$(cat "$PROJECT_DIR/VERSION")"
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf 'VERSION must contain a numeric major.minor.patch version.\n' >&2
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    printf 'VERSION must contain a numeric major.minor or major.minor.patch version.\n' >&2
     exit 1
 fi
 MIN_MACOS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$PROJECT_DIR/Resources/Info.plist")"
@@ -69,6 +69,7 @@ else
     /usr/bin/lipo -create "${BINARIES[@]}" -output "$STAGED_APP/Contents/MacOS/AudioRateMatch"
 fi
 cp "$PROJECT_DIR/Resources/Info.plist" "$STAGED_APP/Contents/Info.plist"
+cp "$PROJECT_DIR/Resources/AppIcon.icns" "$STAGED_APP/Contents/Resources/AppIcon.icns"
 cp "$PROJECT_DIR/LICENSE" "$STAGED_APP/Contents/Resources/LICENSE"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$STAGED_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$STAGED_APP/Contents/Info.plist"
