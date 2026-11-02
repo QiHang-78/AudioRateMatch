@@ -4,7 +4,7 @@
 
 **Match a macOS output device's sample rate to a verified playback stream.**
 
-Current version: **1.0**.
+Current version: **1.0.1**.
 
 [Download](https://github.com/QiHang-78/AudioRateMatch/releases/latest) · [简体中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Publishing guide](docs/RELEASING.md)
 
@@ -54,7 +54,11 @@ Builds use an ad-hoc local signature and are not notarized by Apple. macOS may b
 
 ## Usage
 
-The first launch, and the first launch after a version change, opens a status window. The app then lives in the `SR` menu-bar item.
+The first launch, and the first launch after a version change, opens a status window. The app then lives in a compact waveform menu-bar icon. Hover for the sample rate and status, or click to open the full menu.
+
+If the icon is missing, reopen AudioRateMatch from Applications to recreate the item and show its window. The window also provides “恢复菜单栏图标” (restore menu-bar icon) and “更多操作” (more actions), which opens the same menu.
+
+On macOS versions with an “Allow in the Menu Bar” setting, make sure AudioRateMatch is enabled. If you use a menu-bar manager such as YoungBar, also set AudioRateMatch to show there: its hiding rules can still apply when the system switch is on. The restore button does not change those external rules. Auto-hiding and limited menu-bar space can also affect visibility.
 
 | Menu / status | Meaning |
 | --- | --- |
@@ -63,7 +67,7 @@ The first launch, and the first launch after a version change, opens a status wi
 | 输出设备 | Follow the default output or select a fixed device |
 | 暂停自动切换 | Pause changes without restoring an earlier rate |
 | 重新检测 | Reload evidence and reconnect the log monitor |
-| `SR 96 ✓` | The followed stream, nominal setting and physical stream all report 96 kHz |
+| 已匹配 · 系统与硬件流回读一致 | The followed stream, nominal setting and physical stream all report the displayed sample rate |
 
 A device uses one sample rate at a time. When following one app, other sources may still be resampled. Matching sample rates does not guarantee bit-perfect audio: effects, gain and mixing can still modify the signal.
 

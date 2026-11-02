@@ -73,5 +73,5 @@ if arguments.contains("--help") || arguments.contains("-h") {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let delegate = AppDelegate(); app.delegate = delegate
-    app.run()
+    withExtendedLifetime(delegate) { app.run() }
 }

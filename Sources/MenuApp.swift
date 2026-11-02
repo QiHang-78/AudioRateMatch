@@ -23,10 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         engine.preferredUID = UserDefaults.standard.string(forKey: "outputUID")
         engine.preferredSource = UserDefaults.standard.string(forKey: "sourceKey")
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        item.button?.title = "SR · 等待"
-        menu.delegate = self; item.menu = menu
+        menu.delegate = self
+        restoreStatusItem()
         menu.addItem(NSMenuItem(title: "AudioRateMatch · 系统采样率跟随", action: nil, keyEquivalent: ""))
         menu.addItem(.separator())
         [sourceItem, formatItem, outputItem, physicalItem, stateItem].forEach { menu.addItem($0) }
@@ -50,6 +48,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func add(_ title: String, _ action: Selector, key: String = "") {
         let entry = NSMenuItem(title: title, action: action, keyEquivalent: key); entry.target = self; menu.addItem(entry)
     }
+    @objc func restoreStatusItem() {
+        if let item { NSStatusBar.system.removeStatusItem(item) }
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.autosaveName = "AudioRateMatch.StatusItem"
+        item.isVisible = true
+        item.menu = menu
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            NSColor.black.setStroke()
+            let bars = NSBezierPath()
+            bars.lineWidth = 1.8; bars.lineCapStyle = .round
+            for (index, height) in [4.0, 9.0, 15.0, 9.0, 4.0].enumerated() {
+                let x = 3.0 + Double(index) * 3.0
+                bars.move(to: NSPoint(x: x, y: 9.0 - height / 2))
+                bars.line(to: NSPoint(x: x, y: 9.0 + height / 2))
+            }
+            bars.stroke(); return true
+        }
+        image.isTemplate = true
+        item.button?.image = image
+        item.button?.imagePosition = .imageOnly
+        item.button?.title = ""
+        item.button?.setAccessibilityTitle("AudioRateMatch")
+        refresh()
+    }
     func refresh() {
         let names = engine.resolution.names
         sourceItem.title = "播放来源：" + (names.isEmpty ? "等待应用播放" : String(names.prefix(70)))
@@ -58,8 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         physicalItem.title = "硬件回读：\(engine.output?.physicalRates.map { rateText($0) + " kHz" }.joined(separator: ", ") ?? "—")"
         stateItem.title = engine.state
         let rate = engine.output.map { rateText($0.rate) } ?? "—"
-        item.button?.title = engine.enabled ? "SR \(rate)\(engine.matched ? " ✓" : " ·")" : "SR 暂停"
-        item.button?.toolTip = engine.state + "\n" + sourceItem.title
+        item.button?.appearsDisabled = !engine.enabled
+        item.button?.toolTip = "AudioRateMatch · \(rate) kHz\n" + engine.state + "\n" + sourceItem.title
+        item.button?.setAccessibilityValue(engine.enabled ? "\(rate) kHz · \(engine.state)" : "已暂停自动切换")
         toggleItem.title = engine.enabled ? "暂停自动切换" : "恢复自动切换"
         windowStatus.stringValue = engine.state
         windowDevice.stringValue = outputItem.title + "\n" + physicalItem.title
@@ -115,11 +138,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let title = NSTextField(labelWithString: "系统采样率，跟随正在播放的应用")
             title.font = .systemFont(ofSize: 19, weight: .semibold)
             windowStatus.font = .systemFont(ofSize: 14, weight: .medium)
-            let note = NSTextField(wrappingLabelWithString: "自动模式在播放流采样率一致时切换；未确认或冲突时保持当前设置。\n在菜单栏「SR」→「跟随应用」中可指定应用。")
+            let note = NSTextField(wrappingLabelWithString: "自动模式在播放流采样率一致时切换；未确认或冲突时保持当前设置。\n点击菜单栏的波形图标，或下方「更多操作」，可指定跟随应用和输出设备。")
             note.textColor = .secondaryLabelColor
+            let controls = NSButton(title: "更多操作", target: self, action: #selector(showControls(_:)))
             let midi = NSButton(title: "打开音频 MIDI 设置", target: self, action: #selector(openMIDI))
-            let detect = NSButton(title: "重新检测", target: self, action: #selector(retry))
-            let buttons = NSStackView(views: [midi, detect]); buttons.orientation = .horizontal; buttons.spacing = 12
+            let restore = NSButton(title: "恢复菜单栏图标", target: self, action: #selector(restoreStatusItem))
+            let buttons = NSStackView(views: [controls, midi, restore]); buttons.orientation = .horizontal; buttons.spacing = 12
             let stack = NSStackView(views: [title, windowStatus, windowDevice, windowSources, note, buttons])
             stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 18
             stack.translatesAutoresizingMaskIntoConstraints = false
@@ -134,10 +158,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         refresh(); statusWindow?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
+    @objc func showControls(_ sender: NSButton) {
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
+    }
     @objc func openMIDI() { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Audio MIDI Setup.app")) }
     @objc func copyReport() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(engine.report, forType: .string) }
     @objc func openLog() { NSWorkspace.shared.open(MatchEngine.logURL) }
     @objc func quit() { NSApp.terminate(nil) }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showStatus(); return true }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        restoreStatusItem(); showStatus(); return true
+    }
     func applicationWillTerminate(_ notification: Notification) { engine.stop() }
 }
