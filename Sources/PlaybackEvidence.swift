@@ -53,7 +53,9 @@ struct PlaybackEvent {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSSZ"
         return formatter
     }()
-    private static let formatPattern = try! NSRegularExpression(pattern: #"aq@(0x[0-9a-fA-F]+): New output; format\s+\d+ ch,\s*([0-9.]+) Hz"#)
+    // Core Audio uses both aq@ADDRESS and AudioQueueObject@ADDRESS log prefixes.
+    // Keep the queue address so a preloaded format needs matching playback evidence.
+    private static let formatPattern = try! NSRegularExpression(pattern: #"\b(?:aq@|AudioQueueObject@)(0x[0-9a-fA-F]+)(?:\s+AudioQueueObject)?: New output; format\s+\d+ ch,\s*([0-9.]+) Hz"#)
     private static let activityPattern = try! NSRegularExpression(pattern: #"AQME (.+?): client (starting|stopping): <AudioQueueObject@(0x[0-9a-fA-F]+);"#)
 
     static func parse(_ object: [String: Any]) -> PlaybackEvent? {

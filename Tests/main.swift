@@ -85,6 +85,29 @@ check(PlaybackEvent.parse(["processID": 3, "timestamp": "x", "eventMessage": "AU
 check(PlaybackEvent.parse(["processID": 3, "timestamp": "x", "eventMessage": format(0)]) == nil, "Invalid sample rate rejected")
 check(PlaybackEvent.parse(["processID": 3, "timestamp": "x", "eventMessage": "converter from 96000 Hz to 44100 Hz"]) == nil, "Unrelated converter format rejected")
 
+// Core Audio logs observed on macOS 27.2 use the object name before its address.
+func objectFormat(_ rate: Int, queue: String) -> String {
+    "AudioQueueObject.cpp:475   AudioQueueObject@\(queue) AudioQueueObject: New output; format  2 ch,  \(rate) Hz, lpcm (0x00000004) 24-bit little-endian signed integer (passthrough? no)"
+}
+let objectEvent = PlaybackEvent.parse([
+    "eventMessage": objectFormat(48000, queue: "0x123abc"),
+    "timestamp": "2026-10-29 12:00:01.000000+0800", "processID": NSNumber(value: first.pid)
+])
+check(objectEvent != nil, "Object-prefixed Core Audio source format must be recognized")
+var objectEvidence = PlaybackEvidence()
+objectEvidence.accept(objectEvent!, client: first)
+check(objectEvidence.rate(for: usb, client: first) == nil, "Object-prefixed preload still requires its queue to start")
+objectEvidence.accept(event(start("0x123abc"), 2), client: first)
+check(SourcePolicy.resolve(clients: [first], evidence: [first.pid: objectEvidence], output: usb, preferred: nil).rate == 48000,
+      "Object format and matching playback event resolve to 48 kHz")
+objectEvidence.accept(event(objectFormat(96000, queue: "0x456def"), 3), client: first)
+check(objectEvidence.rate(for: usb, client: first) == 48000, "New-style 96 kHz preload cannot replace playing 48 kHz queue")
+objectEvidence.accept(event(start("0x456def"), 4), client: first)
+check(objectEvidence.rate(for: usb, client: first) == nil, "New-style overlapping rates remain ambiguous")
+objectEvidence.accept(event(stop("0x123abc"), 5), client: first)
+check(SourcePolicy.resolve(clients: [first], evidence: [first.pid: objectEvidence], output: usb, preferred: nil).rate == 96000,
+      "New-style transition resolves to 96 kHz after the old queue stops")
+
 var gate = SwitchGate()
 let now = Date()
 check(!gate.observe("DAC|96000", now: now), "New stream waits for stability")

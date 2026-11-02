@@ -4,7 +4,7 @@
 
 **根据可确认的播放流格式，自动调整 macOS 输出设备的采样率。**
 
-当前版本：**1.0.1**。
+当前版本：**1.0.2**。
 
 [下载应用](https://github.com/QiHang-78/AudioRateMatch/releases/latest) · [English](README.en.md) · [兼容范围与原理](docs/ARCHITECTURE.md) · [验证记录](docs/VALIDATION.md) · [发布指南](docs/RELEASING.md)
 

@@ -4,7 +4,7 @@
 
 **Match a macOS output device's sample rate to a verified playback stream.**
 
-Current version: **1.0.1**.
+Current version: **1.0.2**.
 
 [Download](https://github.com/QiHang-78/AudioRateMatch/releases/latest) · [简体中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Publishing guide](docs/RELEASING.md)
 
