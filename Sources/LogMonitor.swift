@@ -1,11 +1,14 @@
 import Foundation
+import Darwin
 
 final class LogMonitor {
     static let predicate = "subsystem == \"com.apple.coreaudio\" AND (eventMessage CONTAINS \"New output; format\" OR eventMessage CONTAINS \"client starting:\" OR eventMessage CONTAINS \"client stopping:\")"
     var onEvents: (([PlaybackEvent], Bool) -> Void)?
     var onError: ((String, Bool) -> Void)?
+    private(set) var lastStartDelay: TimeInterval?
     // All mutable state belongs to the main queue. Blocking pipe reads run in the background.
     private var stream: Process?
+    private var streamSource: DispatchSourceRead?
     private var archive: Process?
     private var generation = UUID()
     private var pending = Data()
@@ -15,16 +18,30 @@ final class LogMonitor {
     func start() {
         stop()
         let token = generation
-        let process = Process(), pipe = Pipe(), errors = Pipe()
+        let process = Process(), errors = Pipe()
+        // log stream fully buffers a pipe, sometimes delaying a start by seconds.
+        // A PTY makes each ndjson line flush immediately without increasing log level.
+        var master: Int32 = -1, slave: Int32 = -1
+        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+            onError?("无法建立实时日志通道；请重新检测", true); return
+        }
+        let writer = FileHandle(fileDescriptor: slave, closeOnDealloc: true)
+        let readFD = master
+        let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: .global(qos: .userInitiated))
+        streamSource = source
         process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
         process.arguments = ["stream", "--style", "ndjson", "--level", "info", "--predicate", Self.predicate]
-        process.standardOutput = pipe; process.standardError = errors
+        process.standardOutput = writer; process.standardError = errors
         stream = process
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { handle.readabilityHandler = nil; return }
+        source.setEventHandler { [weak self] in
+            var buffer = [UInt8](repeating: 0, count: 65536)
+            let count = Darwin.read(readFD, &buffer, buffer.count)
+            guard count > 0 else { return }
+            let data = Data(buffer.prefix(count))
             DispatchQueue.main.async { [weak self] in self?.consume(data, token: token) }
         }
+        source.setCancelHandler { Darwin.close(readFD) }
+        source.resume()
         process.terminationHandler = { [weak self] process in
             let message = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             DispatchQueue.main.async { [weak self] in
@@ -33,8 +50,8 @@ final class LogMonitor {
                 self.onError?("播放日志监听已停止（\(process.terminationStatus)）\(message.prefix(180))；请重新检测", true)
             }
         }
-        do { try process.run() }
-        catch { stop(); onError?("无法启动日志读取：\(error.localizedDescription)", true); return }
+        do { try process.run(); try writer.close() }
+        catch { try? writer.close(); stop(); onError?("无法启动日志读取：\(error.localizedDescription)", true); return }
         loadArchive(token: token)
     }
     private func consume(_ data: Data, token: UUID) {
@@ -46,6 +63,7 @@ final class LogMonitor {
             pending.removeSubrange(...end)
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let event = PlaybackEvent.parse(object) else { continue }
             events.append(event)
+            if case .start = event.kind, let date = event.date { lastStartDelay = Date().timeIntervalSince(date) }
         }
         if loading { buffered.append(contentsOf: events) }
         else if !events.isEmpty { deliver(events, initial: false, token: token) }
@@ -93,7 +111,8 @@ final class LogMonitor {
     }
     func stop() {
         generation = UUID()
-        if let process = stream { (process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil; if process.isRunning { process.terminate() } }
+        streamSource?.cancel(); streamSource = nil
+        if let process = stream, process.isRunning { process.terminate() }
         if let process = archive, process.isRunning { process.terminate() }
         stream = nil; archive = nil
         pending.removeAll(); buffered.removeAll(); loading = true

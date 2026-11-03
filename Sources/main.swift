@@ -17,6 +17,7 @@ Usage:
                  [--device NAME_OR_UID]       Select an output device
                  [--source SELECTION_KEY]     Follow an app from --status
                  [--apply]                    Enable real device changes while watching
+                 [--preplay]                  Buffer audio and match before audible playback
   AudioRateMatch --set RATE_HZ                Set and verify a device rate immediately
                  [--device NAME_OR_UID]
 
@@ -57,6 +58,7 @@ if arguments.contains("--help") || arguments.contains("-h") {
 } else if arguments.contains("--watch") {
     let engine = MatchEngine()
     engine.dryRun = !arguments.contains("--apply")
+    engine.preplayEnabled = arguments.contains("--preplay")
     engine.preferredSource = option("--source")
     if let selector = option("--device") {
         guard let device = Hardware.devices().first(where: { $0.name == selector || $0.uid == selector }) else { fputs("未找到输出设备\n", stderr); exit(1) }

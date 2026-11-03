@@ -3,10 +3,6 @@ import CoreAudio
 import AppKit
 import Darwin
 
-struct AudioFailure: Error, CustomStringConvertible {
-    let description: String
-}
-
 struct OutputDevice {
     let id: AudioObjectID
     let uid: String
@@ -67,6 +63,7 @@ enum Hardware {
     }
     static func devices() -> [OutputDevice] {
         array(system, kAudioHardwarePropertyDevices, as: AudioObjectID.self).compactMap(device)
+            .filter { !$0.uid.hasPrefix(TapKitIdentity.aggregateDeviceUIDPrefix + ".") }
     }
     static func defaultOutput() -> OutputDevice? {
         guard let id: AudioObjectID = try? scalar(system, kAudioHardwarePropertyDefaultOutputDevice, initial: AudioObjectID(0)) else { return nil }

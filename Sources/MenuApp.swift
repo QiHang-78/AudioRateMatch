@@ -10,12 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let physicalItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     let toggleItem = NSMenuItem(title: "暂停自动切换", action: #selector(toggle), keyEquivalent: "")
+    let preplayItem = NSMenuItem(title: "播放前匹配（缓冲 1 秒）", action: #selector(togglePreplay), keyEquivalent: "")
     let sourcesMenu = NSMenu()
     let devicesMenu = NSMenu()
     var statusWindow: NSWindow?
     let windowStatus = NSTextField(wrappingLabelWithString: "")
     let windowDevice = NSTextField(wrappingLabelWithString: "")
     let windowSources = NSTextField(wrappingLabelWithString: "")
+    let windowMode = NSTextField(wrappingLabelWithString: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if NSRunningApplication.runningApplications(withBundleIdentifier: AppInfo.bundleIdentifier).contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
@@ -23,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         engine.preferredUID = UserDefaults.standard.string(forKey: "outputUID")
         engine.preferredSource = UserDefaults.standard.string(forKey: "sourceKey")
+        engine.preplayEnabled = UserDefaults.standard.object(forKey: "preplayEnabled") as? Bool ?? true
         menu.delegate = self
         restoreStatusItem()
         menu.addItem(NSMenuItem(title: "AudioRateMatch · 系统采样率跟随", action: nil, keyEquivalent: ""))
@@ -32,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let sources = NSMenuItem(title: "跟随应用", action: nil, keyEquivalent: ""); sources.submenu = sourcesMenu; menu.addItem(sources)
         let devices = NSMenuItem(title: "输出设备", action: nil, keyEquivalent: ""); devices.submenu = devicesMenu; menu.addItem(devices)
         toggleItem.target = self; menu.addItem(toggleItem)
+        preplayItem.target = self; menu.addItem(preplayItem)
         add("重新检测", #selector(retry))
         add("显示状态窗口", #selector(showStatus))
         add("打开音频 MIDI 设置", #selector(openMIDI))
@@ -84,7 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.toolTip = "AudioRateMatch · \(rate) kHz\n" + engine.state + "\n" + sourceItem.title
         item.button?.setAccessibilityValue(engine.enabled ? "\(rate) kHz · \(engine.state)" : "已暂停自动切换")
         toggleItem.title = engine.enabled ? "暂停自动切换" : "恢复自动切换"
+        preplayItem.state = engine.preplayEnabled ? .on : .off
         windowStatus.stringValue = engine.state
+        windowMode.stringValue = engine.preplayEnabled
+            ? "播放前匹配已开启：选定输出延迟约 1 秒，换采样率时等待设备稳定后再响起。视频或通话时可在菜单中关闭。"
+            : "播放中直接切换：换采样率时可能短暂断音。"
         windowDevice.stringValue = outputItem.title + "\n" + physicalItem.title
         let lines = engine.resolution.observations.map { "\($0.client.name)  ·  \($0.rate.map { rateText($0) + " kHz" } ?? "格式未确认")" }
         windowSources.stringValue = lines.isEmpty ? "等待应用播放音频。" : lines.prefix(6).joined(separator: "\n")
@@ -144,7 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let midi = NSButton(title: "打开音频 MIDI 设置", target: self, action: #selector(openMIDI))
             let restore = NSButton(title: "恢复菜单栏图标", target: self, action: #selector(restoreStatusItem))
             let buttons = NSStackView(views: [controls, midi, restore]); buttons.orientation = .horizontal; buttons.spacing = 12
-            let stack = NSStackView(views: [title, windowStatus, windowDevice, windowSources, note, buttons])
+            windowMode.textColor = .secondaryLabelColor
+            let stack = NSStackView(views: [title, windowStatus, windowDevice, windowSources, windowMode, note, buttons])
             stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 18
             stack.translatesAutoresizingMaskIntoConstraints = false
             window.contentView!.addSubview(stack)
@@ -164,6 +173,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openMIDI() { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Audio MIDI Setup.app")) }
     @objc func copyReport() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(engine.report, forType: .string) }
     @objc func openLog() { NSWorkspace.shared.open(MatchEngine.logURL) }
+    @objc func togglePreplay() {
+        engine.preplayEnabled.toggle()
+        UserDefaults.standard.set(engine.preplayEnabled, forKey: "preplayEnabled")
+        if engine.preplayEnabled { engine.preplay.start() }
+        engine.changedSelection(); refresh()
+        if !engine.preplayEnabled { engine.preplay.transport.stop() }
+    }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         restoreStatusItem(); showStatus(); return true

@@ -11,6 +11,11 @@ bash "$PROJECT_DIR/build.sh" "$@"
 VERSION="$(cat "$PROJECT_DIR/VERSION")"
 APP_DIR="$PROJECT_DIR/dist/AudioRateMatch.app"
 ARCHITECTURES="$(/usr/bin/lipo -archs "$APP_DIR/Contents/MacOS/AudioRateMatch")"
+HELPER_ARCHITECTURES="$(/usr/bin/lipo -archs "$APP_DIR/Contents/Resources/MediaHelper/MediaRemoteAdapter.framework/MediaRemoteAdapter")"
+if [[ "$ARCHITECTURES" != "$HELPER_ARCHITECTURES" ]]; then
+    printf 'Media helper architectures do not match the app.\n' >&2
+    exit 1
+fi
 case "$ARCHITECTURES" in
     arm64|x86_64) ARCH_LABEL="$ARCHITECTURES" ;;
     *) ARCH_LABEL="universal" ;;

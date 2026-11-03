@@ -4,7 +4,7 @@
 
 **Match a macOS output device's sample rate to a verified playback stream.**
 
-Current version: **1.0.2**.
+Current version: **1.1.0**.
 
 [Download](https://github.com/QiHang-78/AudioRateMatch/releases/latest) · [简体中文](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Publishing guide](docs/RELEASING.md)
 
@@ -13,6 +13,9 @@ AudioRateMatch is a native Swift menu-bar utility built with AppKit and Core Aud
 **Discovering every audio process does not make every app's original source rate observable.** The current detector relies on recognizable Audio Queue format and playback events. Unknown formats, conflicting sources, unsupported rates and device ownership prevent automatic changes. It cannot recover audio that an application has already mixed or resampled.
 
 ## Features
+
+- Preplay matching uses a one-second in-memory output delay, pauses a confirmed new song, waits for the DAC format and clock, then restarts its head.
+- Same-rate songs keep the existing path. Missing control or late evidence holds the current hardware rate.
 
 - Process discovery without a player allowlist, with playback activity and device routing checks.
 - Automatic agreement across active sources, or explicit app selection.
@@ -26,7 +29,7 @@ AudioRateMatch is a native Swift menu-bar utility built with AppKit and Core Aud
 - macOS 14.2 deployment target; see [validation](docs/VALIDATION.md) for the environments actually tested.
 - Apple Command Line Tools or Xcode with macOS SDK 14.2+ and Swift 5.9+; compiled in Swift 5 language mode.
 - Native arm64, x86_64 and Universal builds are available. Intel hardware playback has not been tested.
-- System frameworks and `/usr/bin/log`; no third-party package dependencies.
+- System frameworks, `/usr/bin/log` and `/usr/bin/perl`; vendored MIT / BSD components are built from source. No Homebrew dependency.
 - The app interface and runtime diagnostics are currently in Simplified Chinese.
 
 The deployment target is not a compatibility guarantee for every later macOS release. Detection depends on system log availability and format, which can change with macOS or player updates.
@@ -71,13 +74,15 @@ On macOS versions with an “Allow in the Menu Bar” setting, make sure AudioRa
 
 A device uses one sample rate at a time. When following one app, other sources may still be resampled. Matching sample rates does not guarantee bit-perfect audio: effects, gain and mixing can still modify the signal.
 
-Changes may briefly interrupt playback. Run one sample-rate controller at a time. Pausing, quitting or becoming idle leaves the device at its last setting.
+Preplay matching is enabled by default. It delays all audio on the selected output by about one second, affecting video, games and calls. Disable “播放前匹配（缓冲 1 秒）” to use the original direct switching mode. Changing DAC rates still adds a wait between songs; gapless playback is not guaranteed.
+
+It requires a confirmed new song, a timely Audio Queue start, system pause/seek control and no other active source on that output. Initial playback, mid-song resumes and unsupported apps keep the current rate. See [preplay design](docs/PREPLAY.md). Run one sample-rate controller at a time. Pausing, quitting or becoming idle leaves the device at its last setting.
 
 ## Compatibility
 
-Recognizable Audio Queue paths can be followed. Hardware checks covered `afplay`, an independent AVAudioPlayer example and a QQ Music local-playback case. Unknown Audio Unit / AVAudioEngine paths stay at the current setting. Browser, game, conferencing, DRM and internal mixing paths have no general compatibility guarantee.
+Recognizable Audio Queue paths can be detected. Direct-switching hardware checks covered `afplay`, an independent AVAudioPlayer example and a QQ Music local-playback case. Preplay matching additionally requires player control; see [validation](docs/VALIDATION.md) for its separate coverage. Unknown Audio Unit / AVAudioEngine paths stay at the current setting. Browser, game, conferencing, DRM and internal mixing paths have no general compatibility guarantee.
 
-Two known sources at the same rate can be followed together. Conflicting or unknown sources hold the current setting; selecting an app can resolve a conflict but cannot reveal an unknown source format. See [architecture and limitations](docs/ARCHITECTURE.md).
+Two known sources at the same rate can be detected together. Preplay matching defers cross-rate changes while another process is outputting to the same device. In direct-switching mode, selecting one app can resolve a rate conflict; it cannot reveal an unknown source format. See [architecture and limitations](docs/ARCHITECTURE.md).
 
 ## CLI
 
@@ -92,11 +97,13 @@ dist/AudioRateMatch.app/Contents/MacOS/AudioRateMatch --watch --seconds 20
 
 `--status` reports devices and audio clients as JSON, including a `selectionKey`. `--watch` observes for 1–300 seconds (default 20); it writes diagnostic logs but does not change device settings by default. Optional selectors are `--source SELECTION_KEY` and `--device NAME_OR_UID`.
 
-`--watch --apply` enables real automatic device changes. `--set 96000` immediately sets and verifies 96 kHz on the default output; `--device` can select another output. Quit other rate controllers before using either write mode.
+`--watch --apply --preplay` tests buffered preplay matching. `--watch --apply` without `--preplay` uses direct switching. `--set 96000` immediately sets and verifies 96 kHz on the default output; `--device` can select another output. Quit other rate controllers before using either write mode.
 
 ## Privacy
 
-The app has no networking, reads no music files, records no audio, installs no drivers and injects no code into other processes. It reads Core Audio process metadata and filtered system audio logs.
+The app has no networking, reads no music files and installs no drivers. Preplay mode captures the selected device’s system audio through a Core Audio Tap, delays it in memory and renders it back; audio is never written to a file or uploaded. macOS may request System Audio Recording permission. Capture failure restores direct output and holds the hardware rate. Disabling preplay stops capture.
+
+The app also reads Core Audio process metadata, filtered system audio logs and system Now Playing metadata for playback identity checks. Playback control uses a bundled BSD adapter to Apple’s private MediaRemote interfaces, which can change with OS updates.
 
 Preferences use the `local.audioratematch` UserDefaults domain. Logs are written to `~/Library/Logs/AudioRateMatch/AudioRateMatch.log`; a log larger than roughly 2 MB is rotated on the next GUI launch. Diagnostics may include app/device names, source identifiers, rates, timestamps and errors. `--status` also exposes process IDs, executable paths and device UIDs. Remove personal paths and device identifiers before sharing diagnostics.
 
@@ -110,4 +117,4 @@ The GitHub Actions configuration runs tests and native builds on both Apple Sili
 
 ## License
 
-[MIT](LICENSE). Copyright © 2026 AudioRateMatch contributors.
+[MIT](LICENSE). Copyright © 2026 AudioRateMatch contributors. Vendored [CoreAudioTapKit](Vendor/CoreAudioTapKit/LICENSE) is MIT; [mediaremote-adapter](Vendor/mediaremote-adapter/LICENSE) is BSD-3-Clause.

@@ -4,9 +4,11 @@ import Darwin
 
 final class MatchEngine {
     let monitor = LogMonitor()
+    let preplay = PreplayController()
     var onUpdate: (() -> Void)?
     var enabled = true
     var dryRun = false
+    var preplayEnabled = true
     var preferredUID: String?
     var preferredSource: String?
     private(set) var sourceRate: Double?
@@ -26,6 +28,7 @@ final class MatchEngine {
     private var monitorFault: String?
     private var writeFault: String?
     private var logHandle: FileHandle?
+    private var recentEvents: [PlaybackEvent] = []
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/AudioRateMatch/AudioRateMatch.log")
 
@@ -42,42 +45,52 @@ final class MatchEngine {
         monitor.onEvents = { [weak self] events, initial in
             guard let self else { return }
             self.waiting.append(contentsOf: events)
+            self.preplay.note(events)
+            if !initial { self.recentEvents.append(contentsOf: events) }
             if initial { self.ready = true }
             self.tick()
         }
         monitor.onError = { [weak self] message, fatal in
             guard let self else { return }
             if fatal {
+                self.preplay.stop()
                 self.ready = false; self.pendingWrite = nil; self.monitorFault = message
                 self.evidence.removeAll(); self.waiting.removeAll(); self.sourceRate = nil
             }
             self.record(message); self.tick()
         }
+        preplay.onUpdate = { [weak self] in self?.tick() }
+        preplay.onRecord = { [weak self] message in self?.record(message) }
+        preplay.transport.onChange = { [weak self] in self?.tick() }
     }
     func start() {
         record("启动 \(AppInfo.displayName)；\(dryRun ? "只读检测" : "自动修改系统输出")；应用=\(preferredSource ?? "自动跟随所有应用")")
         monitor.start()
+        if !dryRun && preplayEnabled { preplay.start() }
         let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in self?.tick() }
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     func stop() {
         timer?.invalidate(); timer = nil; pendingWrite = nil
         monitor.stop(); try? logHandle?.close()
+        preplay.shutdown()
     }
     func retry() {
         monitorFault = nil; writeFault = nil; gate.reset(); pendingWrite = nil; ready = false
         lastSourceKey = ""; evidence.removeAll(); waiting.removeAll()
+        recentEvents.removeAll(); preplay.retry(startTransport: preplayEnabled && !dryRun)
         monitor.start(); tick()
     }
     func changedSelection() {
         pendingWrite = nil; lastSourceKey = ""; writeFault = nil
+        preplay.stop(); preplay.freshSelection()
         _ = gate.observe(nil, now: Date()); tick()
     }
     func record(_ message: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)"
         history.append(line); if history.count > 16 { history.removeFirst() }
         try? logHandle?.write(contentsOf: Data((line + "\n").utf8))
-        if dryRun { print(line); fflush(stdout) }
+        if CommandLine.arguments.contains("--watch") { print(line); fflush(stdout) }
     }
     private func updateEvidence(now: Date) {
         let byPID = Dictionary(clients.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
@@ -100,7 +113,10 @@ final class MatchEngine {
         let now = Date(), defaultOutput = Hardware.defaultOutput()
         clients = Hardware.clients()
         updateEvidence(now: now)
+        recentEvents = recentEvents.filter { now.timeIntervalSince($0.date ?? .distantPast) < 2 }.suffix(128).map { $0 }
         output = preferredUID.flatMap { uid in Hardware.devices().first { $0.uid == uid } } ?? (preferredUID == nil ? defaultOutput : nil)
+        preplay.ensure(device: output, enabled: enabled && preplayEnabled && !dryRun && ready && monitorFault == nil,
+                       hasAudio: clients.contains { $0.running && $0.deviceIDs.contains(output?.id ?? 0) })
         guard let output else { sourceRate = nil; state = "等待输出设备连接"; _ = gate.observe(nil, now: now); return }
         let endpoint = OutputEndpoint(id: output.id, uid: output.uid, isDefault: output.id == defaultOutput?.id)
         resolution = SourcePolicy.resolve(clients: clients, evidence: evidence, output: endpoint, preferred: preferredSource)
@@ -109,6 +125,8 @@ final class MatchEngine {
         guard ready, monitorFault == nil else {
             state = monitorFault ?? "正在读取播放记录…"; _ = gate.observe(nil, now: now); return
         }
+        if preplayEnabled, preplay.busy { state = preplay.status; return }
+        if preplayEnabled, let fault = preplay.fault { state = fault; return }
         guard let rate = resolution.rate else { state = resolution.reason; _ = gate.observe(nil, now: now); return }
         let sourceKey = "\(output.uid)|\(rate)|" + resolution.observations.map { $0.client.identity }.joined(separator: ",")
         if sourceKey != lastSourceKey {
@@ -122,6 +140,20 @@ final class MatchEngine {
         if let writeFault { state = writeFault; return }
         guard output.supports(rate) else { state = "设备不支持 \(rateText(rate)) kHz，保持当前设置"; return }
         guard !dryRun else { state = "只读：系统需要 \(rateText(output.rate)) → \(rateText(rate)) kHz"; return }
+        if preplayEnabled {
+            guard gate.allowWrite(device: output.uid, now: now) else { state = "切换过于频繁，等待下一次起播"; return }
+            guard let cue = PreplayPolicy.cue(events: recentEvents, clients: clients, evidence: evidence,
+                                              output: endpoint, rate: rate, now: now) else {
+                state = "保持连续播放 · 等待下一首起播时匹配"; return
+            }
+            if preplay.schedule(cue: cue, device: output, clients: clients, completion: { [weak self] _, _ in
+                self?.tick()
+            }) {
+                gate.didWrite(device: output.uid, now: now)
+                state = preplay.status
+            } else { state = preplay.status }
+            return
+        }
         guard stable else { state = "等待播放流稳定…"; return }
         guard pendingWrite == nil else { state = "正在切换并回读硬件…"; return }
         guard gate.allowWrite(device: output.uid, now: now) else {
@@ -164,6 +196,9 @@ final class MatchEngine {
         return """
         \(AppInfo.displayName)
         跟随模式：\(preferredSource ?? "自动跟随所有应用（同采样率时切换）")
+        切换时机：\(preplayEnabled ? "播放前匹配" : "播放中直接切换")
+        播放缓冲：\(preplay.statsText)
+        起播通知延迟：\(monitor.lastStartDelay.map { String(format: "%.0f ms", $0 * 1000) } ?? "尚未收到实时起播")
         播放流：\(sourceRate.map { rateText($0) + " kHz" } ?? "未确认或冲突")
         系统输出：\(output?.name ?? "无")
         系统采样率：\(output.map { rateText($0.rate) + " kHz" } ?? "未知")

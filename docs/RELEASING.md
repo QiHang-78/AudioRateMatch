@@ -30,6 +30,8 @@ git push -u origin main
 
 ## 本地构建与打包
 
+1.1.0 同时构建 `Native/` 缓冲和 `Vendor/` 的两个开源组件；保留它们的许可证。最终应用内的 MediaRemoteAdapter.framework 必须包含与主程序相同的架构，框架先签名，应用最后签名。
+
 ```sh
 bash test.sh
 bash package.sh --arch universal
@@ -39,8 +41,8 @@ bash package.sh --arch universal
 
 ```text
 dist/AudioRateMatch.app
-dist/AudioRateMatch-1.0-macOS-universal.zip
-dist/AudioRateMatch-1.0-macOS-universal.zip.sha256
+dist/AudioRateMatch-1.1.0-macOS-universal.zip
+dist/AudioRateMatch-1.1.0-macOS-universal.zip.sha256
 ```
 
 构建脚本从 `VERSION` 读取版本并写入应用 Bundle 的两个版本字段，支持 `1.0` 或 `1.0.1` 这样的格式。`Resources/Info.plist` 中的 `0.0` 是模板占位值。所有路径相对项目本身解析，可以从其他工作目录调用脚本。
@@ -48,7 +50,7 @@ dist/AudioRateMatch-1.0-macOS-universal.zip.sha256
 ZIP 使用系统 `ditto` 保存应用结构和执行权限。可以在 `dist/` 中执行以下命令验证下载文件：
 
 ```sh
-shasum -a 256 -c AudioRateMatch-1.0-macOS-universal.zip.sha256
+shasum -a 256 -c AudioRateMatch-1.1.0-macOS-universal.zip.sha256
 ```
 
 ## GitHub Actions

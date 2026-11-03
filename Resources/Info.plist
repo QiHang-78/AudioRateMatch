@@ -25,5 +25,7 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>缓冲播放音频，在设备采样率切换稳定后再输出，保护歌曲开头。音频只在内存中处理，不保存或上传。</string>
 </dict>
 </plist>

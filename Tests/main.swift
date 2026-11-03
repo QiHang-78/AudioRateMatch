@@ -119,4 +119,80 @@ for offset in 0..<5 { gate.didWrite(device: "DAC", now: now.addingTimeInterval(D
 check(!gate.allowWrite(device: "DAC", now: now.addingTimeInterval(5)), "Budget survives source/rate changes")
 check(gate.allowWrite(device: "other", now: now.addingTimeInterval(5)), "Unrelated device has separate budget")
 check(gate.allowWrite(device: "DAC", now: now.addingTimeInterval(20)), "Rate limit expires after stable interval")
-print("PASS: \(assertions) assertions for process isolation, routing, playback evidence, selection and switch stability")
+let freshStart = event(start(), 2)
+let freshNow = freshStart.date!.addingTimeInterval(0.35)
+var freshEvidence = PlaybackEvidence()
+freshEvidence.accept(event(format(96000), 1), client: first)
+freshEvidence.accept(freshStart, client: first)
+func cue(_ events: [PlaybackEvent], _ evidence: PlaybackEvidence = freshEvidence,
+         at time: Date = freshNow, from source: AudioClient = first) -> PreplayCue? {
+    PreplayPolicy.cue(events: events, clients: [source], evidence: [source.pid: evidence],
+                      output: usb, rate: 96000, now: time)
+}
+check(cue([freshStart])?.rate == 96000, "Fresh native-rate start can arm preplay")
+check(cue([event(format(96000), 1)]) == nil, "Preload alone cannot arm preplay")
+check(cue([freshStart], at: freshNow.addingTimeInterval(1)) == nil, "Late start cannot cause a mid-song write")
+check(cue([freshStart], at: freshStart.date!.addingTimeInterval(-1)) == nil, "Future-dated start is rejected")
+check(cue([freshStart], from: client(running: false)) == nil, "Paused HAL client cannot arm")
+check(cue([freshStart], from: client(object: 999)) == nil, "Reused PID cannot reuse another process's cue")
+check(cue([freshStart], from: client(devices: [102])) == nil, "Another device's start cannot arm")
+var stoppedEvidence = freshEvidence
+stoppedEvidence.accept(event(stop(), 3), client: first)
+check(cue([freshStart], stoppedEvidence) == nil, "A subsequently stopped queue cannot arm")
+var overlapEvidence = freshEvidence
+overlapEvidence.accept(event(format(48000, queue: "0xdef"), 3), client: first)
+overlapEvidence.accept(event(start("0xdef"), 4), client: first)
+check(cue([freshStart], overlapEvidence) == nil, "Ambiguous overlap cannot arm")
+
+var clock = ClockReadiness()
+check(!clock.observe(host: 1, sample: 0, targetRate: 96000, formatMatches: true), "One clock sample is insufficient")
+check(!clock.observe(host: 1.1, sample: 9600, targetRate: 96000, formatMatches: true), "DAC needs a stable interval")
+check(clock.observe(host: 1.6, sample: 57600, targetRate: 96000, formatMatches: true), "Monotonic target-rate clock becomes ready")
+check(!clock.observe(host: 1.7, sample: 0, targetRate: 96000, formatMatches: true), "Clock reset invalidates readiness")
+check(!clock.observe(host: 1.8, sample: 9600, targetRate: 96000, formatMatches: false), "Nominal clock alone cannot override a wrong physical format")
+check(!clock.observe(host: 2, sample: 14400, targetRate: 96000, formatMatches: true), "Wrong effective clock rate is rejected")
+check(!clock.observe(host: 2, sample: 14400, targetRate: 96000, formatMatches: true), "Frozen clock is rejected")
+check(!clock.observe(host: .nan, sample: .nan, targetRate: 96000, formatMatches: true), "Invalid clock values are rejected")
+
+var playerData: [String: Any] = ["bundleIdentifier": "com.tencent.QQMusicMac", "processIdentifier": 743,
+    "title": "A", "artist": "B", "durationMicros": 100000000, "playing": true, "contentItemIdentifier": "first"]
+let player = PlayerSnapshot(playerData)!
+check(PlayerSnapshot.stream(["type": "data", "diff": false, "payload": playerData])?.sameItem(as: player) == true,
+      "Adapter streaming envelope yields the full current player")
+check(PlayerSnapshot.stream(["type": "data", "diff": true, "payload": ["playing": false]]) == nil,
+      "Partial streaming diffs cannot become a guessed player")
+check(PlayerSnapshot.stream(["type": "data", "diff": false, "payload": [:]]) == nil,
+      "Empty initial stream event clears current state")
+var transitions = PlayerTransitionTracker()
+transitions.observe(player, at: now)
+check(!transitions.allowsHeadRestart(player, cue: now, now: now.addingTimeInterval(0.2)), "Initial playback may already be mid-song")
+transitions.observe(player, at: now.addingTimeInterval(1))
+check(!transitions.allowsHeadRestart(player, cue: now.addingTimeInterval(1), now: now.addingTimeInterval(1.2)), "Pause/resume must not seek to the beginning")
+playerData["contentItemIdentifier"] = "after-seek"
+let afterSeek = PlayerSnapshot(playerData)!
+check(afterSeek.sameTrack(as: player), "QQ regenerated seek token still refers to the same song")
+check(!afterSeek.sameItem(as: player), "A user seek during DAC wait invalidates the old item")
+playerData["title"] = "Other song"
+let otherSong = PlayerSnapshot(playerData)!
+transitions.observe(otherSong, at: now.addingTimeInterval(2))
+check(transitions.allowsHeadRestart(otherSong, cue: now.addingTimeInterval(2), now: now.addingTimeInterval(2.2)), "A confirmed fresh song transition allows replaying the head")
+check(!transitions.allowsHeadRestart(otherSong, cue: now.addingTimeInterval(2), now: now.addingTimeInterval(2.01)), "Wait for metadata to settle before controlling the player")
+var delayedMetadata = PlayerTransitionTracker()
+delayedMetadata.observe(player, at: now.addingTimeInterval(-1))
+delayedMetadata.observe(otherSong, at: now.addingTimeInterval(0.455))
+check(!delayedMetadata.allowsHeadRestart(otherSong, cue: now, now: now.addingTimeInterval(0.520)),
+      "QQ's first timer tick can precede metadata settling")
+check(delayedMetadata.allowsHeadRestart(otherSong, cue: now, now: now.addingTimeInterval(0.555)),
+      "The scheduled settled-metadata recheck can still preserve the song head")
+check(!transitions.allowsHeadRestart(otherSong, cue: now.addingTimeInterval(3), now: now.addingTimeInterval(3.2)), "Later resume of that song cannot reuse its original transition")
+check(!PlayerSnapshot(playerData)!.sameTrack(as: player), "A new song cannot receive an old seek/play command")
+playerData["title"] = "A"; playerData["processIdentifier"] = 888
+check(!PlayerSnapshot(playerData)!.sameTrack(as: player), "A different player PID cannot receive old commands")
+check(PlayerSnapshot([:]) == nil, "Missing playback metadata is not guessed")
+check(PreplayPolicy.exclusiveSource(pid: first.pid, clients: [first], outputID: 114), "One active controlled player can switch before playback")
+check(!PreplayPolicy.exclusiveSource(pid: first.pid, clients: [first, second], outputID: 114), "Another active output must not be interrupted even in priority mode")
+check(!PreplayPolicy.exclusiveSource(pid: first.pid, clients: [first, client(888, devices: [])], outputID: 114), "An unknown active route blocks preplay")
+check(PreplayPolicy.exclusiveSource(pid: first.pid, clients: [first, otherDeviceClient], outputID: 114), "An unrelated device does not block preplay")
+check(PreplayPolicy.exclusiveSource(pid: first.pid, clients: [first, client(888, running: false)], outputID: 114), "An idle app does not block preplay")
+check(!PreplayPolicy.exclusiveSource(pid: first.pid, clients: [], outputID: 114), "No active source cannot authorize switching")
+print("PASS: \(assertions) assertions for evidence, routing, preplay cues, DAC clock and playback identity")

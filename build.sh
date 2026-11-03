@@ -56,10 +56,14 @@ for TARGET_ARCH in "${ARCHITECTURES[@]}"; do
     TARGET_DIR="$BUILD_DIR/$TARGET_ARCH"
     mkdir -p "$TARGET_DIR/module-cache"
     printf 'Compiling %s for macOS %s+…\n' "$TARGET_ARCH" "$MIN_MACOS"
+    /usr/bin/xcrun clang -std=c11 -O2 -arch "$TARGET_ARCH" -mmacosx-version-min="$MIN_MACOS" \
+        -c "$PROJECT_DIR/Native/PlaybackBuffer.c" -o "$TARGET_DIR/PlaybackBuffer.o"
     "$SWIFTC" -swift-version 5 -O \
         -sdk "$SDK_PATH" -target "$TARGET_ARCH-apple-macosx$MIN_MACOS" \
         -module-cache-path "$TARGET_DIR/module-cache" \
-        "$PROJECT_DIR"/Sources/*.swift -framework AppKit -framework CoreAudio \
+        -import-objc-header "$PROJECT_DIR/Native/PlaybackBuffer.h" \
+        "$PROJECT_DIR"/Sources/*.swift "$PROJECT_DIR"/Vendor/CoreAudioTapKit/Sources/CoreAudioTapKit/*.swift \
+        "$TARGET_DIR/PlaybackBuffer.o" -framework AppKit -framework CoreAudio -framework AudioToolbox \
         -o "$TARGET_DIR/AudioRateMatch"
     BINARIES+=("$TARGET_DIR/AudioRateMatch")
 done
@@ -71,6 +75,10 @@ fi
 cp "$PROJECT_DIR/Resources/Info.plist" "$STAGED_APP/Contents/Info.plist"
 cp "$PROJECT_DIR/Resources/AppIcon.icns" "$STAGED_APP/Contents/Resources/AppIcon.icns"
 cp "$PROJECT_DIR/LICENSE" "$STAGED_APP/Contents/Resources/LICENSE"
+mkdir -p "$STAGED_APP/Contents/Resources/Licenses"
+cp "$PROJECT_DIR/Vendor/CoreAudioTapKit/LICENSE" "$STAGED_APP/Contents/Resources/Licenses/CoreAudioTapKit.txt"
+cp "$PROJECT_DIR/Vendor/mediaremote-adapter/LICENSE" "$STAGED_APP/Contents/Resources/Licenses/MediaRemoteAdapter.txt"
+bash "$PROJECT_DIR/scripts/build-media-helper.sh" "$STAGED_APP/Contents/Resources/MediaHelper" "${ARCHITECTURES[@]}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$STAGED_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$STAGED_APP/Contents/Info.plist"
 /usr/bin/plutil -lint "$STAGED_APP/Contents/Info.plist"
